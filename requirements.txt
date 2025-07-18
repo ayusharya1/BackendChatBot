@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+PyPDF2
+langchain
+openai
+langchain-community
+langchain-openai
+sentence-transformers
+transformers
+faiss-cpu
+tiktoken
+unstructured
+pypdf 
