@@ -1,103 +1,90 @@
-
 from PyPDF2 import PdfReader
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.vectorstores import FAISS
+from langchain.chains import ConversationalRetrievalChain
+from langchain.memory import ConversationBufferMemory
+from langchain.prompts import PromptTemplate
+from langchain.chat_models import ChatOpenAI
+from langchain_core.messages import HumanMessage
 
-from langchain.chains.question_answering import load_qa_chain
-from langchain.llms import OpenAI
-
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 import os
 
+# --- Load .env for local development ---
+if not os.environ.get("RENDER") and os.path.exists(".env"):
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except ImportError:
+        pass  # python-dotenv is optional for cloud, required for local
 
-
-# Set up OpenAI API key from environment variable (Render sets this in the dashboard)
+# --- Set your OpenAI API key ---
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
-    raise RuntimeError("OPENAI_API_KEY environment variable not set. Please set it in your Render dashboard.")
-
-
-
-
-# Step 1: Read the PDF
-# provide the path of  pdf file/files.
+    raise RuntimeError("OPENAI_API_KEY environment variable not set. Please set it in your Render dashboard or in a .env file for local development.")
+# --- Step 1: Load and extract PDF content ---
 pdfreader = PdfReader('IISER Mohali.pdf')
-
-
-
-
-
-from typing_extensions import Concatenate
-# read text from pdf
 raw_text = ''
-for i, page in enumerate(pdfreader.pages):
+for page in pdfreader.pages:
     content = page.extract_text()
     if content:
         raw_text += content
 
-
-
-
-
-
-raw_text
-
-
-
-
-# Step 2: Split into chunks
-
-# We need to split the text using Character Text Split such that it sshould not increse token size
+# --- Step 2: Split text into chunks ---
 text_splitter = CharacterTextSplitter(
-    separator = "\n",
-    chunk_size = 800,
-    chunk_overlap  = 200,
-    length_function = len,
+    separator="\n",
+    chunk_size=800,
+    chunk_overlap=200,
+    length_function=len,
 )
 texts = text_splitter.split_text(raw_text)
 
-
-
-
-
-len(texts)
-
-
-
-
-# Step 3: Create embeddings and vector DB
-# Download embeddings from OpenAI
+# --- Step 3: Create embeddings and vector store ---
 embeddings = OpenAIEmbeddings()
 document_search = FAISS.from_texts(texts, embeddings)
 
+# --- Step 4: Set up memory and prompt ---
+memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
 
+prompt_template = """
+You are Ridan, the friendly AI face of the IISER Mohali Library. Always answer in a warm, supportive, and concise tone—like a helpful friend.
 
+INSTRUCTIONS:
+- Always use the document below to answer.
+- Do NOT say \"Based on the document...\" or mention any file.
+- If the answer isn't in the document, answer using general knowledge politely.
+- Keep answers short unless clarification is needed.
+- Maintain continuity using chat history when follow-up is asked.
 
+--- DOCUMENT CONTENT ---
+{context}
+--- END DOCUMENT ---
 
-document_search
+Chat History: {chat_history}
+Question: {question}
 
+Helpful Answer:
+"""
+prompt = PromptTemplate(
+    input_variables=["context", "chat_history", "question"],
+    template=prompt_template
+)
 
+# --- Step 5: LLM and chain ---
+llm = ChatOpenAI(model="gpt-4o", temperature=0.7)
+chain = ConversationalRetrievalChain.from_llm(
+    llm=llm,
+    retriever=document_search.as_retriever(),
+    memory=memory,
+    combine_docs_chain_kwargs={"prompt": prompt}
+)
 
-
-
-from langchain.chains.question_answering import load_qa_chain
-from langchain.llms import OpenAI
-
-
-
-
-# Step 4: Load QA chain
-chain = load_qa_chain(OpenAI(), chain_type="stuff")
-
-# Step 5: Setup FastAPI
-# --- FastAPI app setup ---
+# --- Step 6: FastAPI setup ---
 app = FastAPI()
-
-# Allow CORS for all origins (for development)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -113,20 +100,32 @@ class AskRequest(BaseModel):
 class AskResponse(BaseModel):
     answer: str
 
-# Step 6: API Endpoint
-# --- API endpoint ---
+# --- Step 7: Main Ask Endpoint ---
 @app.post("/ask", response_model=AskResponse)
-def ask_question(request: AskRequest):
+async def ask_question(request: AskRequest):
     query = request.question
-    docs = document_search.similarity_search(query)
-    result = chain.run(input_documents=docs, question=query)
-    return {"answer": result}
 
-@app.get("/")
-def health_check():
-    return {"status": "ok"}
+    try:
+        relevant_docs = document_search.similarity_search(query, k=4)
+        has_relevant_context = any(doc.page_content.strip() for doc in relevant_docs)
 
-# Step 7: Local development server
-# --- For local dev: run with `python app.py` ---
+        if has_relevant_context:
+            result = chain.invoke({"question": query})
+            return {"answer": result["answer"]}
+        else:
+            fallback_prompt = f"""
+You are a helpful and witty AI assistant. Stay supportive, concise, and crack jokes occasionally.
+If the user asks something outside library documents, use general knowledge.
+
+User: {query}
+Answer:
+"""
+            fallback_llm = ChatOpenAI(model="gpt-4o", temperature=0.7)
+            fallback_response = fallback_llm.invoke([HumanMessage(content=fallback_prompt)])
+            return {"answer": fallback_response.content}
+    except Exception as e:
+        return {"answer": f"Oops! Something went wrong: {str(e)}"}
+
+# --- Step 8: Run server locally ---
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
