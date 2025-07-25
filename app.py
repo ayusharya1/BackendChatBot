@@ -75,7 +75,7 @@ prompt = PromptTemplate(
 )
 
 # --- Step 5: LLM and chain ---
-llm = ChatOpenAI(model="gpt-4o", temperature=0.7)
+llm = ChatOpenAI(model="gpt-4.1-nano", temperature=0.7)
 chain = ConversationalRetrievalChain.from_llm(
     llm=llm,
     retriever=document_search.as_retriever(),
@@ -120,7 +120,7 @@ If the user asks something outside library documents, use general knowledge.
 User: {query}
 Answer:
 """
-            fallback_llm = ChatOpenAI(model="gpt-4o", temperature=0.7)
+            fallback_llm = ChatOpenAI(model="gpt-4.1-nano", temperature=0.7)
             fallback_response = fallback_llm.invoke([HumanMessage(content=fallback_prompt)])
             return {"answer": fallback_response.content}
     except Exception as e:
