@@ -11,7 +11,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage
 
 from .prompts import fallback_prompt_template
-from .llm_chain import get_chain_from_saved_vectorstore, vectorstore_cache
+from .llm_chain import get_chain_from_saved_vectorstore, vectorstore_cache, regenerate_vectorstore
 from .config import OPENAI_API_KEY 
 
 # ✅ FastAPI App
@@ -47,13 +47,14 @@ async def ask_question(request: AskRequest):
             }
             vs_path = vectorstore_path_map.get(code)
 
-            if not vs_path or not Path(vs_path).exists():
-                return {"answer": f"⚠️ Invalid or missing access code."}
+            if not vs_path:
+                return {"answer": f"⚠️ Invalid access code."}
 
             if code not in vectorstore_cache:
                 try:
                     vectorstore_cache[code] = get_chain_from_saved_vectorstore(vs_path)
                 except Exception as e:
+                    print(f"⚠️ Failed to load vectorstore: {str(e)}")
                     return {"answer": f"⚠️ Failed to load vectorstore: {str(e)}"}
 
             chain = vectorstore_cache[code]
