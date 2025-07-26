@@ -119,14 +119,23 @@ async def ask_question(request: AskRequest):
             }
             vs_path = vectorstore_path_map.get(code)
 
-            if not vs_path or not Path(vs_path).exists():
-                return {"answer": f"⚠️ Invalid or missing access code."}
+            if not vs_path:
+                return {"answer": f"⚠️ Invalid access code."}
 
             if code not in vectorstore_cache:
                 try:
                     vectorstore_cache[code] = get_chain_from_saved_vectorstore(vs_path)
                 except Exception as e:
-                    return {"answer": f"⚠️ Failed to load vectorstore: {str(e)}"}
+                    print(f"⚠️ Failed to load vectorstore: {str(e)}")
+                    # Try to regenerate if it doesn't exist
+                    if not Path(vs_path).exists():
+                        print(f"🔄 Attempting to regenerate vectorstore at {vs_path}")
+                        if regenerate_vectorstore(vs_path):
+                            vectorstore_cache[code] = get_chain_from_saved_vectorstore(vs_path)
+                        else:
+                            return {"answer": f"⚠️ Failed to regenerate vectorstore. Please try again."}
+                    else:
+                        return {"answer": f"⚠️ Failed to load vectorstore: {str(e)}"}
 
             chain = vectorstore_cache[code]
             try:
