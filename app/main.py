@@ -15,12 +15,17 @@ from .llm_chain import get_chain_from_saved_vectorstore, vectorstore_cache, rege
 from .config import OPENAI_API_KEY 
 
 # ✅ FastAPI App
-app = FastAPI()
+app = FastAPI(title="PersonalizeGPT Backend", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], allow_credentials=True,
     allow_methods=["*"], allow_headers=["*"]
 )
+
+print("🚀 FastAPI app initialized")
+print("📋 Available routes:")
+for route in app.routes:
+    print(f"  - {route.methods} {route.path}")
 
 # 📥 Request / Response Models
 class AskRequest(BaseModel):
