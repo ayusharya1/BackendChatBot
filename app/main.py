@@ -31,6 +31,11 @@ class AskRequest(BaseModel):
 class AskResponse(BaseModel):
     answer: str
 
+# 🔄 Health Check Endpoint
+@app.get("/")
+async def health_check():
+    return {"status": "healthy", "message": "Backend is running"}
+
 # 🔄 Main API Endpoint
 @app.post("/ask", response_model=AskResponse)
 async def ask_question(request: AskRequest):
